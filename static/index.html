@@ -78,8 +78,6 @@
     <div class="row">
       <div><label class="field" for="maxtok">Max output tokens</label>
         <input id="maxtok" type="number" min="50" value="2000"></div>
-      <div id="codebox" hidden><label class="field" for="code">Access code</label>
-        <input id="code" type="password" autocomplete="off"></div>
       <div class="grow hint">Each model's own output limit is applied if lower. Reasoning models spend part of this limit on thinking, so raise it if an answer comes back empty.</div>
       <button id="run" class="run" type="button" disabled>Compare models</button>
     </div>
@@ -100,7 +98,7 @@
 
 <script>
 const $ = s => document.querySelector(s);
-const state = { cfg: { max_models: 4, token_cap: 4000 }, needsCode: false, order: [], ui: {}, results: {}, preferred: null, ratings: {}, requested: 0 };
+const state = { cfg: { max_models: 4, token_cap: 4000 }, order: [], ui: {}, results: {}, preferred: null, ratings: {}, requested: 0 };
 const PREFERRED = ["anthropic-claude-4.5-sonnet", "openai-gpt-5-mini", "deepseek-3.2"];
 
 const fmtTok = n => n == null ? null : n >= 1e6 ? (n / 1e6).toFixed(1).replace(/\.0$/, "") + "M" : n >= 1000 ? Math.round(n / 1000) + "K" : String(n);
@@ -108,7 +106,7 @@ const setMsg = t => { $("#msg").textContent = t || ""; };
 const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
 const selected = () => [...document.querySelectorAll("#tiles input:checked")].map(i => i.value);
 const syncRun = () => { $("#run").disabled = selected().length === 0; };
-function headers() { const h = { "Content-Type": "application/json" }; if (state.needsCode) h["X-Access-Code"] = $("#code").value; return h; }
+const headers = () => ({ "Content-Type": "application/json" });
 
 function renderModels(models) {
   const box = $("#tiles"); box.textContent = "";
@@ -133,17 +131,13 @@ function renderModels(models) {
 async function loadModels() {
   try {
     state.cfg = await (await fetch("/api/config")).json();
-    state.needsCode = state.cfg.needs_code;
-    $("#codebox").hidden = !state.needsCode;
     $("#limitHint").textContent = `(choose up to ${state.cfg.max_models})`;
     $("#maxtok").max = state.cfg.token_cap;
-    if (state.needsCode && !$("#code").value) { $("#tiles").textContent = "Enter the access code to load models."; return; }
     const r = await fetch("/api/models", { headers: headers() });
     if (!r.ok) throw new Error((await r.json()).detail || r.statusText);
     renderModels(await r.json()); setMsg("");
   } catch (e) { $("#tiles").textContent = ""; setMsg("Could not load models: " + e.message); }
 }
-$("#code").addEventListener("change", loadModels);
 
 function makeCard(model) {
   const card = el("article", "card"), head = el("header"), tags = el("div", "tags");

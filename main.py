@@ -8,22 +8,21 @@ from collections import defaultdict, deque
 from typing import Optional
 
 import httpx
-from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 BASE = os.environ.get("INFERENCE_BASE_URL", "https://inference.do-ai.run/v1")
 KEY = os.environ.get("MODEL_ACCESS_KEY", "")
-ACCESS_CODE = os.environ.get("ACCESS_CODE", "")                    # optional shared code
 MAX_MODELS = int(os.environ.get("MAX_MODELS", "4"))                # models per comparison
 TOKEN_CAP = int(os.environ.get("TOKEN_CAP", "4000"))               # hard cap on output tokens
 RATE_LIMIT = int(os.environ.get("RATE_LIMIT_PER_MIN", "10"))       # comparisons per client per minute
-GLOBAL_RATE_LIMIT = int(os.environ.get("GLOBAL_RATE_LIMIT_PER_MIN", "60"))  # all clients combined
+GLOBAL_RATE_LIMIT = int(os.environ.get("GLOBAL_RATE_LIMIT_PER_MIN", "30"))  # all clients combined
+DAILY_LIMIT = int(os.environ.get("DAILY_COMPARE_LIMIT", "500"))             # comparisons per UTC day, 0 = off
 # Header that carries the real client IP, set ONLY if your platform's proxy sets it.
 # On DigitalOcean App Platform use: do-connecting-ip. Empty = use the direct socket peer.
 CLIENT_IP_HEADER = os.environ.get("CLIENT_IP_HEADER", "").strip().lower()
-ALLOWLIST = {m.strip() for m in os.environ.get("MODEL_ALLOWLIST", "").split(",") if m.strip()}
 
 NON_CHAT = ("embed", "mini-lm", "bge", "gte", "whisper", "tts", "image", "flux",
             "sdxl", "diffusion", "rerank")
@@ -34,18 +33,17 @@ log = logging.getLogger("model-compare")
 app = FastAPI(title="Model Compare PoC")
 _cache = {"t": 0.0, "data": {}}
 _hits = defaultdict(deque)
+_daily = {"day": "", "n": 0}
 
 
 def auth():
     return {"Authorization": f"Bearer {KEY}"}
 
 
-def guard(code: Optional[str]):
+def guard():
     if not KEY:
         log.error("MODEL_ACCESS_KEY is not set")
         raise HTTPException(500, "The server is not configured correctly.")
-    if ACCESS_CODE and code != ACCESS_CODE:
-        raise HTTPException(401, "Wrong or missing access code.")
 
 
 def client_ip(request: Request) -> str:
@@ -70,8 +68,14 @@ def rate_limit(request: Request):
             q.popleft()
         if len(q) >= limit:
             raise HTTPException(429, "Too many comparisons right now. Try again in a minute.")
+    today = time.strftime("%Y-%m-%d", time.gmtime(now))
+    if _daily["day"] != today:
+        _daily.update(day=today, n=0)
+    if DAILY_LIMIT and _daily["n"] >= DAILY_LIMIT:
+        raise HTTPException(429, "The daily demo limit has been reached. Please try again tomorrow.")
     for key, _ in keys:
         _hits[key].append(now)
+    _daily["n"] += 1
 
 
 def friendly_error(status: Optional[int] = None, timeout: bool = False) -> str:
@@ -104,8 +108,6 @@ async def get_models() -> dict:
         mid = m.get("id", "")
         if not mid or any(s in mid.lower() for s in NON_CHAT):
             continue
-        if ALLOWLIST and mid not in ALLOWLIST:
-            continue
         data[mid] = {"id": mid, "owner": m.get("owned_by", ""),
                      "context_length": m.get("context_length"),
                      "max_output_tokens": m.get("max_output_tokens")}
@@ -115,12 +117,12 @@ async def get_models() -> dict:
 
 @app.get("/api/config")
 async def config():
-    return {"needs_code": bool(ACCESS_CODE), "max_models": MAX_MODELS, "token_cap": TOKEN_CAP}
+    return {"max_models": MAX_MODELS, "token_cap": TOKEN_CAP}
 
 
 @app.get("/api/models")
-async def models(x_access_code: Optional[str] = Header(default=None)):
-    guard(x_access_code)
+async def models():
+    guard()
     return sorted((await get_models()).values(), key=lambda m: (m["owner"], m["id"]))
 
 
@@ -166,8 +168,8 @@ async def ask_one(client, model, prompt, limit) -> dict:
 
 
 @app.post("/api/compare")
-async def compare(body: Compare, request: Request, x_access_code: Optional[str] = Header(default=None)):
-    guard(x_access_code)
+async def compare(body: Compare, request: Request):
+    guard()
     rate_limit(request)
     chosen = list(dict.fromkeys(body.models))
     if len(chosen) > MAX_MODELS:
