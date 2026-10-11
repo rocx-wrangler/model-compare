@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Model Compare</title>
+<style>
+  :root { --bg:#f4f6f9; --panel:#fff; --ink:#0e1a2b; --muted:#5b6b82; --line:#d9e0ea; --accent:#0069ff;
+          --accent-ink:#fff; --tint:#eaf1ff; --bad:#b42318; --warn:#9a6700; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#0b1220; --panel:#121b2e; --ink:#e8eef8; --muted:#93a3bb; --line:#24324d; --accent:#4d8dff;
+            --accent-ink:#06101f; --tint:#17274a; --bad:#ff8a80; --warn:#e3b341; } }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.5 Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width:1180px; margin:0 auto; padding:28px 20px 60px; }
+  h1 { font-size:26px; margin:0 0 4px; letter-spacing:-0.01em; }
+  h2 { font-size:17px; margin:28px 0 10px; }
+  .sub { color:var(--muted); margin:0 0 22px; max-width:62ch; }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:16px; }
+  .field { display:block; font-weight:600; margin:0 0 6px; }
+  textarea { width:100%; min-height:96px; resize:vertical; padding:10px 12px; font:inherit; color:var(--ink);
+             background:var(--bg); border:1px solid var(--line); border-radius:8px; }
+  input[type=number], input[type=password] { width:130px; padding:8px 10px; font:inherit; color:var(--ink);
+             background:var(--bg); border:1px solid var(--line); border-radius:8px; }
+  textarea:focus-visible, input:focus-visible, button:focus-visible, .tile:focus-within { outline:2px solid var(--accent); outline-offset:2px; }
+  .hint { color:var(--muted); font-size:13px; }
+  .tiles { display:grid; grid-template-columns:repeat(auto-fill, minmax(230px, 1fr)); gap:8px; margin:8px 0 14px; }
+  .tile { display:grid; grid-template-columns:auto 1fr; gap:2px 8px; padding:9px 11px; border:1px solid var(--line);
+          border-radius:8px; cursor:pointer; background:var(--bg); align-items:start; }
+  .tile.on { background:var(--tint); border-color:var(--accent); }
+  .tile input { margin:3px 0 0; accent-color:var(--accent); grid-row:span 3; }
+  .tile b { overflow-wrap:anywhere; }
+  .tile span { color:var(--muted); font-size:13px; }
+  .row { display:flex; flex-wrap:wrap; gap:14px; align-items:end; }
+  .grow { flex:1; min-width:200px; }
+  button.run { padding:10px 22px; font:inherit; font-weight:600; border:0; border-radius:8px; background:var(--accent); color:var(--accent-ink); cursor:pointer; }
+  button.run:disabled { opacity:.55; cursor:not-allowed; }
+  #msg { margin:12px 0 0; min-height:1.2em; color:var(--bad); font-size:14px; }
+  #results { display:grid; grid-template-columns:repeat(auto-fit, minmax(320px, 1fr)); gap:14px; margin-top:20px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:10px; display:flex; flex-direction:column; min-width:0; }
+  .card.pick { border-color:var(--accent); box-shadow:0 0 0 2px var(--accent); }
+  .card header { padding:12px 14px 6px; display:flex; justify-content:space-between; gap:8px; align-items:baseline; flex-wrap:wrap; }
+  .card header b { overflow-wrap:anywhere; }
+  .tags { display:flex; gap:6px; flex-wrap:wrap; }
+  .tag { font-size:12px; padding:2px 8px; border-radius:999px; background:var(--tint); color:var(--ink); border:1px solid var(--line); white-space:nowrap; }
+  .tag.pick { background:var(--accent); color:var(--accent-ink); border-color:var(--accent); }
+  .tag.bad { color:var(--bad); }
+  .meta { padding:0 14px 10px; color:var(--muted); font-size:13px; border-bottom:1px solid var(--line); }
+  .body { padding:14px; white-space:pre-wrap; overflow-wrap:anywhere; max-height:380px; overflow:auto; flex:1; }
+  .body.err { color:var(--bad); } .body.wait { color:var(--muted); }
+  .note { padding:0 14px 10px; font-size:13px; color:var(--warn); }
+  .fb { padding:10px 14px; border-top:1px solid var(--line); display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
+  .fb button { font:inherit; font-size:13px; padding:4px 10px; border-radius:6px; border:1px solid var(--line); background:var(--bg); color:var(--ink); cursor:pointer; }
+  .fb button[aria-pressed=true] { background:var(--accent); color:var(--accent-ink); border-color:var(--accent); }
+  .stars { display:inline-flex; gap:4px; align-items:center; font-size:13px; color:var(--muted); }
+  .stars button { width:30px; padding:4px 0; }
+  .tablewrap { overflow-x:auto; }
+  table { width:100%; border-collapse:collapse; background:var(--panel); border:1px solid var(--line); }
+  th, td { text-align:left; padding:9px 12px; border-bottom:1px solid var(--line); white-space:nowrap; }
+  th { font-weight:600; color:var(--muted); font-size:13px; } tr:last-child td { border-bottom:0; }
+  td.num { font-variant-numeric:tabular-nums; }
+  @media (prefers-reduced-motion: no-preference) { .spin { animation:pulse 1.2s ease-in-out infinite; } }
+  @keyframes pulse { 50% { opacity:.4; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>Which model fits this prompt?</h1>
+  <p class="sub">Write one prompt, pick a few models, and read their answers side by side with response time and token usage.</p>
+
+  <section class="panel">
+    <label class="field" for="prompt">Prompt</label>
+    <textarea id="prompt" placeholder="e.g. Explain the difference between a mutex and a semaphore to a new engineer."></textarea>
+
+    <label class="field" style="margin-top:14px">Models <span class="hint" id="limitHint"></span></label>
+    <div id="tiles" class="tiles"><span class="hint">Loading models…</span></div>
+
+    <div class="row">
+      <div><label class="field" for="maxtok">Max output tokens</label>
+        <input id="maxtok" type="number" min="50" value="2000"></div>
+      <div id="codebox" hidden><label class="field" for="code">Access code</label>
+        <input id="code" type="password" autocomplete="off"></div>
+      <div class="grow hint">Each model's own output limit is applied if lower. Reasoning models spend part of this limit on thinking, so raise it if an answer comes back empty.</div>
+      <button id="run" class="run" type="button" disabled>Compare models</button>
+    </div>
+    <p id="msg" role="status"></p>
+  </section>
+
+  <div id="results"></div>
+  <p id="fbnote" class="hint" hidden>Your picks and ratings are for your own comparison on this page. They are not an objective quality score and are not saved.</p>
+
+  <div id="summary" hidden>
+    <h2>Side-by-side numbers</h2>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Model</th><th>Status</th><th>Time (s)</th><th>Input tokens</th><th>Output tokens</th><th>Output chars</th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table></div>
+  </div>
+</main>
+
+<script>
+const $ = s => document.querySelector(s);
+const state = { cfg: { max_models: 4, token_cap: 4000 }, needsCode: false, order: [], ui: {}, results: {}, preferred: null, ratings: {}, requested: 0 };
+const PREFERRED = ["anthropic-claude-4.5-sonnet", "openai-gpt-5-mini", "deepseek-3.2"];
+
+const fmtTok = n => n == null ? null : n >= 1e6 ? (n / 1e6).toFixed(1).replace(/\.0$/, "") + "M" : n >= 1000 ? Math.round(n / 1000) + "K" : String(n);
+const setMsg = t => { $("#msg").textContent = t || ""; };
+const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+const selected = () => [...document.querySelectorAll("#tiles input:checked")].map(i => i.value);
+const syncRun = () => { $("#run").disabled = selected().length === 0; };
+function headers() { const h = { "Content-Type": "application/json" }; if (state.needsCode) h["X-Access-Code"] = $("#code").value; return h; }
+
+function renderModels(models) {
+  const box = $("#tiles"); box.textContent = "";
+  models.forEach(m => {
+    const tile = el("label", "tile");
+    const cb = el("input"); cb.type = "checkbox"; cb.value = m.id;
+    cb.checked = PREFERRED.includes(m.id) && selected().length < state.cfg.max_models;
+    tile.classList.toggle("on", cb.checked);
+    const ctx = fmtTok(m.context_length), out = fmtTok(m.max_output_tokens);
+    tile.append(cb, el("b", null, m.id), el("span", null, m.owner || "unknown provider"),
+      el("span", null, `${ctx ? ctx + " context" : "context n/a"} · ${out ? out + " max output" : "max output n/a"}`));
+    cb.addEventListener("change", () => {
+      if (cb.checked && selected().length > state.cfg.max_models) { cb.checked = false; setMsg(`You can compare up to ${state.cfg.max_models} models at a time.`); }
+      else setMsg("");
+      tile.classList.toggle("on", cb.checked); syncRun();
+    });
+    box.append(tile);
+  });
+  syncRun();
+}
+
+async function loadModels() {
+  try {
+    state.cfg = await (await fetch("/api/config")).json();
+    state.needsCode = state.cfg.needs_code;
+    $("#codebox").hidden = !state.needsCode;
+    $("#limitHint").textContent = `(choose up to ${state.cfg.max_models})`;
+    $("#maxtok").max = state.cfg.token_cap;
+    if (state.needsCode && !$("#code").value) { $("#tiles").textContent = "Enter the access code to load models."; return; }
+    const r = await fetch("/api/models", { headers: headers() });
+    if (!r.ok) throw new Error((await r.json()).detail || r.statusText);
+    renderModels(await r.json()); setMsg("");
+  } catch (e) { $("#tiles").textContent = ""; setMsg("Could not load models: " + e.message); }
+}
+$("#code").addEventListener("change", loadModels);
+
+function makeCard(model) {
+  const card = el("article", "card"), head = el("header"), tags = el("div", "tags");
+  const status = el("span", "tag", "Running");
+  tags.append(status); head.append(el("b", null, model), tags);
+  const meta = el("div", "meta", "Waiting for the model…");
+  const body = el("div", "body wait spin", "…");
+  card.append(head, meta, body);
+  $("#results").append(card);
+  return { card, tags, status, meta, body, fb: null, fastTag: null, pickTag: null };
+}
+
+function fill(res) {
+  const u = state.ui[res.model]; if (!u) return;
+  state.results[res.model] = res;
+  u.body.classList.remove("wait", "spin");
+  const parts = [];
+  parts.push(res.latency != null ? `Response time ${res.latency} s` : null);
+  parts.push(res.prompt_tokens != null ? `Input ${res.prompt_tokens} tokens` : null);
+  parts.push(res.completion_tokens != null ? `Output ${res.completion_tokens} tokens` : null);
+  u.meta.textContent = parts.filter(Boolean).join(" · ") || "No usage reported";
+  u.status.textContent = { success: "Success", empty: "Empty answer", error: "Failed" }[res.status] || res.status;
+  if (res.status !== "success") u.status.classList.add("bad");
+  if (res.status === "error") { u.body.classList.add("err"); u.body.textContent = res.error; return; }
+  u.body.textContent = res.text || "(no visible answer)";
+  const notes = [];
+  if (res.status === "empty") notes.push("No visible answer. The model likely used its whole limit on reasoning. Raise max output tokens.");
+  else if (res.finish_reason === "length") notes.push("Stopped at the token limit. Raise max output tokens for a full answer.");
+  if (res.token_limit < state.requested) notes.push(`Limit applied: ${res.token_limit} tokens (server or model maximum).`);
+  notes.forEach(t => u.card.append(el("div", "note", t)));
+  if (res.status === "success") addFeedback(res.model, u);
+}
+
+function addFeedback(model, u) {
+  const fb = el("div", "fb"), prefer = el("button", null, "Prefer this answer");
+  prefer.type = "button"; prefer.setAttribute("aria-pressed", "false");
+  prefer.addEventListener("click", () => { state.preferred = state.preferred === model ? null : model; refreshFeedback(); });
+  const stars = el("span", "stars"); stars.append("Rate (optional):");
+  const btns = [1, 2, 3, 4, 5].map(n => {
+    const b = el("button", null, String(n)); b.type = "button"; b.setAttribute("aria-pressed", "false");
+    b.setAttribute("aria-label", `Rate ${n} out of 5`);
+    b.addEventListener("click", () => { state.ratings[model] = state.ratings[model] === n ? undefined : n; refreshFeedback(); });
+    stars.append(b); return b;
+  });
+  fb.append(prefer, stars); u.card.append(fb);
+  u.fb = { prefer, btns }; $("#fbnote").hidden = false;
+}
+
+function refreshFeedback() {
+  Object.entries(state.ui).forEach(([model, u]) => {
+    const isPick = state.preferred === model;
+    u.card.classList.toggle("pick", isPick);
+    if (isPick && !u.pickTag) { u.pickTag = el("span", "tag pick", "Your pick"); u.tags.prepend(u.pickTag); }
+    if (!isPick && u.pickTag) { u.pickTag.remove(); u.pickTag = null; }
+    if (u.fb) {
+      u.fb.prefer.setAttribute("aria-pressed", String(isPick));
+      u.fb.btns.forEach((b, i) => b.setAttribute("aria-pressed", String(state.ratings[model] === i + 1)));
+    }
+  });
+  renderSummary();
+}
+
+function markFastest() {
+  const ok = Object.values(state.results).filter(r => r.status === "success");
+  const best = ok.length ? Math.min(...ok.map(r => r.latency)) : null;
+  Object.entries(state.ui).forEach(([model, u]) => {
+    const r = state.results[model], isFast = r && r.status === "success" && r.latency === best && ok.length > 1;
+    if (isFast && !u.fastTag) { u.fastTag = el("span", "tag", "Fastest response"); u.tags.append(u.fastTag); }
+    if (!isFast && u.fastTag) { u.fastTag.remove(); u.fastTag = null; }
+  });
+}
+
+function renderSummary() {
+  const tbody = $("#rows"); tbody.textContent = "";
+  const done = state.order.filter(m => state.results[m]);
+  const ok = done.map(m => state.results[m]).filter(r => r.status === "success");
+  const best = ok.length > 1 ? Math.min(...ok.map(r => r.latency)) : null;
+  done.forEach(m => {
+    const r = state.results[m], tr = el("tr");
+    const status = { success: "Success", empty: "Empty answer", error: "Failed" }[r.status];
+    const time = r.latency == null ? "–" : r.latency + (r.status === "success" && r.latency === best ? " (fastest response)" : "");
+    const cells = [m + (state.preferred === m ? " · your pick" : ""), status, time, r.prompt_tokens ?? "–", r.completion_tokens ?? "–", r.text ? r.text.length : "–"];
+    cells.forEach((v, i) => tr.append(el("td", i >= 2 ? "num" : "", String(v))));
+    tbody.append(tr);
+  });
+  $("#summary").hidden = done.length === 0;
+}
+
+async function run() {
+  const prompt = $("#prompt").value.trim(), models = selected();
+  if (!prompt) { setMsg("Write a prompt first."); return; }
+  const maxTokens = Math.min(state.cfg.token_cap, Math.max(50, parseInt($("#maxtok").value, 10) || 2000));
+  setMsg(""); $("#run").disabled = true; $("#run").textContent = "Comparing…";
+  Object.assign(state, { order: models, ui: {}, results: {}, preferred: null, ratings: {}, requested: maxTokens });
+  $("#results").textContent = ""; $("#summary").hidden = true; $("#fbnote").hidden = true;
+  models.forEach(m => { state.ui[m] = makeCard(m); });
+  try {
+    const resp = await fetch("/api/compare", { method: "POST", headers: headers(), body: JSON.stringify({ prompt, models, max_tokens: maxTokens }) });
+    if (!resp.ok) { const d = await resp.json().catch(() => ({})); throw new Error(d.detail || resp.statusText); }
+    const reader = resp.body.getReader(), dec = new TextDecoder(); let buf = "";
+    for (;;) {
+      const { done, value } = await reader.read(); if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let i; while ((i = buf.indexOf("\n")) >= 0) {
+        const line = buf.slice(0, i).trim(); buf = buf.slice(i + 1);
+        if (line) { fill(JSON.parse(line)); markFastest(); renderSummary(); }
+      }
+    }
+  } catch (e) {
+    setMsg("Comparison failed: " + e.message);
+    models.filter(m => !state.results[m]).forEach(m => fill({ model: m, status: "error", error: e.message, latency: null, token_limit: maxTokens }));
+    renderSummary();
+  }
+  $("#run").disabled = false; $("#run").textContent = "Compare models";
+}
+$("#run").addEventListener("click", run);
+loadModels();
+</script>
+</body>
+</html>
