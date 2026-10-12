@@ -5,9 +5,9 @@ timing/token table, and lightweight "prefer this answer" / 1-5 rating (kept in t
 The app is open (no login): protect your credits with the limits below.
 
 ## Run locally
-    python -m venv .venv && source .venv/bin/activate      # Windows: .venv\Scripts\activate
+    python -m venv .venv && source .venv/bin/activate      
     pip install -r requirements.txt
-    export MODEL_ACCESS_KEY="your-model-access-key"          # Windows: set MODEL_ACCESS_KEY=...
+    export MODEL_ACCESS_KEY="your-model-access-key"          
     uvicorn main:app --reload --port 8000
 Open http://localhost:8000
 
